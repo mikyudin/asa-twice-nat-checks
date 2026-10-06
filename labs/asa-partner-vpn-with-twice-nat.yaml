@@ -1,0 +1,287 @@
+annotations: []
+smart_annotations: []
+nodes:
+  - boot_disk_size: null
+    configuration:
+      - name: node.cfg
+        content: |-
+          hostname lan-host
+          USERNAME=cisco
+          PASSWORD=cisco
+          ip link set eth0 up
+          ip addr add 192.168.10.10/24 dev eth0
+          ip route add default via 192.168.10.1
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n0
+    image_definition: null
+    label: lan-host
+    node_definition: alpine
+    parameters: {}
+    ram: null
+    tags: []
+    x: -400
+    y: 0
+    interfaces:
+      - id: i0
+        label: eth0
+        mac_address: null
+        type: physical
+        slot: 0
+  - boot_disk_size: null
+    configuration:
+      - name: day0-config
+        content: |-
+          hostname asa-local
+          interface GigabitEthernet0/0
+           nameif inside
+           security-level 100
+           ip address 192.168.10.1 255.255.255.0
+           no shutdown
+          !
+          interface GigabitEthernet0/1
+           nameif outside
+           security-level 0
+           ip address 203.0.113.1 255.255.255.252
+           no shutdown
+          !
+          object network LAN-HOSTS
+           subnet 192.168.10.0 255.255.255.0
+          ! A dynamic NAT pool must be a range object (one host would make it PAT); 9.23 rejects a
+          ! subnet object here with "Subnet can not be used as mapped source in
+          ! dynamic NAT policy". The range spans the whole /28, all 16 addresses,
+          ! since the pool is routed through the tunnel and never sits on a wire.
+          object network SNAT-POOL
+           range 192.0.2.16 192.0.2.31
+          object network SNAT-POOL-NET
+           subnet 192.0.2.16 255.255.255.240
+          object network PARTNER-SVC-MAPPED
+           host 10.200.0.10
+          object network PARTNER-SVC-REAL
+           host 198.51.100.10
+          !
+          ! Source: LAN hosts leave as an address from the /28.
+          ! Destination: the LAN dials 10.200.0.10, the partner receives 198.51.100.10.
+          nat (inside,outside) source dynamic LAN-HOSTS SNAT-POOL destination static PARTNER-SVC-MAPPED PARTNER-SVC-REAL
+          !
+          ! Encryption domain, written in post-NAT addresses.
+          access-list PARTNER-VPN extended permit ip object SNAT-POOL-NET object PARTNER-SVC-REAL
+          !
+          route outside 0.0.0.0 0.0.0.0 203.0.113.2 1
+          !
+          crypto ikev2 policy 10
+           encryption aes-256
+           integrity sha256
+           group 20
+           prf sha256
+           lifetime seconds 86400
+          crypto ikev2 enable outside
+          !
+          crypto ipsec ikev2 ipsec-proposal AES256-SHA256
+           protocol esp encryption aes-256
+           protocol esp integrity sha-256
+          !
+          crypto map OUTSIDE-MAP 10 match address PARTNER-VPN
+          crypto map OUTSIDE-MAP 10 set pfs group20
+          crypto map OUTSIDE-MAP 10 set peer 203.0.113.2
+          crypto map OUTSIDE-MAP 10 set ikev2 ipsec-proposal AES256-SHA256
+          crypto map OUTSIDE-MAP 10 set security-association lifetime seconds 3600
+          crypto map OUTSIDE-MAP interface outside
+          !
+          tunnel-group 203.0.113.2 type ipsec-l2l
+          tunnel-group 203.0.113.2 ipsec-attributes
+           ikev2 remote-authentication pre-shared-key LabOnly-Change-Me-1
+           ikev2 local-authentication pre-shared-key LabOnly-Change-Me-1
+          !
+          end
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n1
+    image_definition: asav-9-23-1
+    label: asa-local
+    node_definition: asav
+    parameters: {}
+    ram: null
+    tags: []
+    x: -150
+    y: 0
+    interfaces:
+      - id: i0
+        label: Management0/0
+        mac_address: null
+        type: physical
+        slot: 0
+      - id: i1
+        label: GigabitEthernet0/0
+        mac_address: null
+        type: physical
+        slot: 1
+      - id: i2
+        label: GigabitEthernet0/1
+        mac_address: null
+        type: physical
+        slot: 2
+      - id: i3
+        label: GigabitEthernet0/2
+        mac_address: null
+        type: physical
+        slot: 3
+      - id: i4
+        label: GigabitEthernet0/3
+        mac_address: null
+        type: physical
+        slot: 4
+  - boot_disk_size: null
+    configuration:
+      - name: day0-config
+        content: |-
+          hostname asa-partner
+          interface GigabitEthernet0/0
+           nameif outside
+           security-level 0
+           ip address 203.0.113.2 255.255.255.252
+           no shutdown
+          !
+          interface GigabitEthernet0/1
+           nameif inside
+           security-level 100
+           ip address 198.51.100.1 255.255.255.0
+           no shutdown
+          !
+          object network PARTNER-SVC
+           host 198.51.100.10
+          object network CUSTOMER-POOL
+           subnet 192.0.2.16 255.255.255.240
+          !
+          access-list CUSTOMER-VPN extended permit ip object PARTNER-SVC object CUSTOMER-POOL
+          !
+          route outside 0.0.0.0 0.0.0.0 203.0.113.1 1
+          !
+          crypto ikev2 policy 10
+           encryption aes-256
+           integrity sha256
+           group 20
+           prf sha256
+           lifetime seconds 86400
+          crypto ikev2 enable outside
+          !
+          crypto ipsec ikev2 ipsec-proposal AES256-SHA256
+           protocol esp encryption aes-256
+           protocol esp integrity sha-256
+          !
+          crypto map OUTSIDE-MAP 10 match address CUSTOMER-VPN
+          crypto map OUTSIDE-MAP 10 set pfs group20
+          crypto map OUTSIDE-MAP 10 set peer 203.0.113.1
+          crypto map OUTSIDE-MAP 10 set ikev2 ipsec-proposal AES256-SHA256
+          crypto map OUTSIDE-MAP 10 set security-association lifetime seconds 3600
+          crypto map OUTSIDE-MAP interface outside
+          !
+          tunnel-group 203.0.113.1 type ipsec-l2l
+          tunnel-group 203.0.113.1 ipsec-attributes
+           ikev2 remote-authentication pre-shared-key LabOnly-Change-Me-1
+           ikev2 local-authentication pre-shared-key LabOnly-Change-Me-1
+          !
+          end
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n2
+    image_definition: asav-9-23-1
+    label: asa-partner
+    node_definition: asav
+    parameters: {}
+    ram: null
+    tags: []
+    x: 150
+    y: 0
+    interfaces:
+      - id: i0
+        label: Management0/0
+        mac_address: null
+        type: physical
+        slot: 0
+      - id: i1
+        label: GigabitEthernet0/0
+        mac_address: null
+        type: physical
+        slot: 1
+      - id: i2
+        label: GigabitEthernet0/1
+        mac_address: null
+        type: physical
+        slot: 2
+      - id: i3
+        label: GigabitEthernet0/2
+        mac_address: null
+        type: physical
+        slot: 3
+      - id: i4
+        label: GigabitEthernet0/3
+        mac_address: null
+        type: physical
+        slot: 4
+  - boot_disk_size: null
+    configuration:
+      - name: node.cfg
+        content: |-
+          hostname partner-svc
+          USERNAME=cisco
+          PASSWORD=cisco
+          ip link set eth0 up
+          ip addr add 198.51.100.10/24 dev eth0
+          ip route add default via 198.51.100.1
+          # The "service": a TCP banner on 8080. The netstat clause printed nothing
+          # in testing; the capture on asa-partner is what shows the pool address.
+          ( while true; do nc -l -p 8080 -e sh -c 'echo "partner-svc 198.51.100.10: hello"; netstat -tn 2>/dev/null | grep ":8080 .*ESTABLISHED"'; done ) >/dev/null 2>&1 &
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n3
+    image_definition: null
+    label: partner-svc
+    node_definition: alpine
+    parameters: {}
+    ram: null
+    tags: []
+    x: 400
+    y: 0
+    interfaces:
+      - id: i0
+        label: eth0
+        mac_address: null
+        type: physical
+        slot: 0
+links:
+  - id: l0
+    n1: n0
+    n2: n1
+    i1: i0
+    i2: i1
+    conditioning: {}
+    label: lan-host-eth0<->asa-local-GigabitEthernet0/0
+  - id: l1
+    n1: n1
+    n2: n2
+    i1: i2
+    i2: i1
+    conditioning: {}
+    label: asa-local-GigabitEthernet0/1<->asa-partner-GigabitEthernet0/0
+  - id: l2
+    n1: n2
+    n2: n3
+    i1: i2
+    i2: i0
+    conditioning: {}
+    label: asa-partner-GigabitEthernet0/1<->partner-svc-eth0
+lab:
+  description: Two ASAv, IKEv2 L2L, source NAT into a /28 pool and destination NAT
+    hiding the partner service.
+  notes: ''
+  title: ASA partner VPN with twice NAT
+  version: 0.3.0

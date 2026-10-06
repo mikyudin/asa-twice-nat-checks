@@ -1,0 +1,185 @@
+# ASA partner VPN with twice NAT: re-run transcript, 2026-10-06
+# Same lab, still running since 2026-09-24. Before this run: clear crypto ikev2 sa,
+# clear crypto ipsec sa counters, clear nat counters, clear xlate on asa-local;
+# capture PSVC armed and IPsec counters cleared on asa-partner. Traffic was then
+# generated from lan-host's console in the CML web UI (screenshots: media 896, 897).
+
+## lan-host
+lan-host:~$ ping -c 4 -W 2 10.200.0.10
+PING 10.200.0.10 (10.200.0.10): 56 data bytes
+64 bytes from 10.200.0.10: seq=1 ttl=42 time=8.487 ms
+64 bytes from 10.200.0.10: seq=2 ttl=42 time=6.049 ms
+64 bytes from 10.200.0.10: seq=3 ttl=42 time=5.411 ms
+--- 10.200.0.10 ping statistics ---
+4 packets transmitted, 3 packets received, 25% packet loss
+round-trip min/avg/max = 5.411/6.649/8.487 ms
+lan-host:~$ echo | nc -w 5 10.200.0.10 8080
+partner-svc 198.51.100.10: hello
+lan-host:~$ 
+
+## asa-partner capture
+asa-partner# show capture PSVC
+15 packets captured
+   1: 02:06:17.850175       192.0.2.22 > 198.51.100.10 icmp: echo request 
+   2: 02:06:17.851823       198.51.100.10 > 192.0.2.22 icmp: echo reply 
+   3: 02:06:18.848985       192.0.2.22 > 198.51.100.10 icmp: echo request 
+   4: 02:06:18.850664       198.51.100.10 > 192.0.2.22 icmp: echo reply 
+   5: 02:06:19.849107       192.0.2.22 > 198.51.100.10 icmp: echo request 
+   6: 02:06:19.850389       198.51.100.10 > 192.0.2.22 icmp: echo reply 
+   7: 02:06:24.858033       192.0.2.22.45353 > 198.51.100.10.8080: S 1809240835:1809240835(0) win 64240 <mss 1380,sackOK,timestamp 2934310847 0,nop,wscale 6> 
+   8: 02:06:24.860246       198.51.100.10.8080 > 192.0.2.22.45353: S 3195799648:3195799648(0) ack 1809240836 win 65160 <mss 1460,sackOK,timestamp 2094894307 2934310847,nop,wscale 6> 
+   9: 02:06:24.863999       192.0.2.22.45353 > 198.51.100.10.8080: . ack 3195799649 win 1004 <nop,nop,timestamp 2934310856 2094894307> 
+  10: 02:06:24.864014       192.0.2.22.45353 > 198.51.100.10.8080: P 1809240836:1809240837(1) ack 3195799649 win 1004 <nop,nop,timestamp 2934310856 2094894307> 
+  11: 02:06:24.864014       192.0.2.22.45353 > 198.51.100.10.8080: F 1809240837:1809240837(0) ack 3195799649 win 1004 <nop,nop,timestamp 2934310856 2094894307> 
+  12: 02:06:24.865601       198.51.100.10.8080 > 192.0.2.22.45353: . ack 1809240837 win 1019 <nop,nop,timestamp 2094894313 2934310856> 
+  13: 02:06:24.868241       198.51.100.10.8080 > 192.0.2.22.45353: P 3195799649:3195799682(33) ack 1809240838 win 1019 <nop,nop,timestamp 2094894315 2934310856> 
+  14: 02:06:24.870789       192.0.2.22.45353 > 198.51.100.10.8080: . ack 3195799682 win 1004 <nop,nop,timestamp 2934310863 2094894315> 
+  15: 02:06:24.877106       198.51.100.10.8080 > 192.0.2.22.45353: R 3195799682:3195799682(0) ack 1809240838 win 1019 <nop,nop,timestamp 2094894324 2934310863> 
+15 packets shown
+
+## asa-local
+asa-local# show nat detail
+Manual NAT Policies (Section 1)
+1 (inside) to (outside) source dynamic LAN-HOSTS SNAT-POOL  destination static PARTNER-SVC-MAPPED PARTNER-SVC-REAL
+    translate_hits = 4, untranslate_hits = 4
+    Source - Origin: 192.168.10.0/24, Translated: 192.0.2.16-192.0.2.31
+    Destination - Origin: 10.200.0.10/32, Translated: 198.51.100.10/32
+asa-local# show xlate
+2 in use, 2 most used
+Flags: D - DNS, e - extended, I - identity, i - dynamic, r - portmap,
+       s - static, T - twice, N - net-to-net
+NAT from outside:198.51.100.10 to inside:10.200.0.10
+    flags sT idle 0:02:52 timeout 0:00:00
+NAT from inside:192.168.10.10 to outside:192.0.2.22 flags i idle 0:02:52 timeout 0:00:00
+asa-local# show crypto ikev2 sa
+IKEv2 SAs:
+Session-id:2, Status:UP-ACTIVE, IKE count:1, CHILD count:1
+Tunnel-id Local                                               Remote                                     fvrf/ivrf     Status         Role
+  5316921 203.0.113.1/500                                     203.0.113.2/500                         Global/Global      READY    INITIATOR
+      Encr: AES-CBC, keysize: 256, Hash: SHA256, DH Grp:20, Auth sign: PSK, Auth verify: PSK
+      Life/Active Time: 86400/181 sec
+Child sa: local selector  192.0.2.16/0 - 192.0.2.31/65535
+          remote selector 198.51.100.10/0 - 198.51.100.10/65535
+          ESP spi in/out: 0xe411a0bc/0x510f290
+asa-local# show crypto ipsec sa
+interface: outside
+    Crypto map tag: OUTSIDE-MAP, seq num: 10, local addr: 203.0.113.1
+      access-list PARTNER-VPN extended permit ip 192.0.2.16 255.255.255.240 host 198.51.100.10 
+      Protected vrf (ivrf): 
+      local ident (addr/mask/prot/port): (192.0.2.16/255.255.255.240/0/0)
+      remote ident (addr/mask/prot/port): (198.51.100.10/255.255.255.255/0/0)
+      current_peer: 203.0.113.2
+      #pkts encaps: 8, #pkts encrypt: 8, #pkts digest: 8
+      #pkts decaps: 7, #pkts decrypt: 7, #pkts verify: 7
+      #pkts compressed: 0, #pkts decompressed: 0
+      #pkts not compressed: 8, #pkts comp failed: 0, #pkts decomp failed: 0
+      #pre-frag successes: 0, #pre-frag failures: 0, #fragments created: 0
+      #PMTUs sent: 0, #PMTUs rcvd: 0, #decapsulated frgs needing reassembly: 0
+      #TFC rcvd: 0, #TFC sent: 0
+      #Valid ICMP Errors rcvd: 0, #Invalid ICMP Errors rcvd: 0
+      #pkts not offload decrypted: 7
+      #send errors: 0, #recv errors: 0
+      local crypto endpt.: 203.0.113.1/500, remote crypto endpt.: 203.0.113.2/500
+      path mtu 1500, ipsec overhead 78(44), media mtu 1500
+      PMTU time remaining (sec): 0, DF policy: copy-df
+      ICMP error validation: disabled, TFC packets: disabled
+      current outbound spi: 0510F290
+      current inbound spi : E411A0BC
+    inbound esp sas:
+      spi: 0xE411A0BC (3826360508)
+         SA State: active
+         transform: esp-aes-256 esp-sha-256-hmac no compression 
+         in use settings ={L2L, Tunnel, PFS Group 20, IKEv2, }
+         slot: 0, conn_id: 2, crypto-map: OUTSIDE-MAP
+         sa timing: remaining key lifetime (kB/sec): (4193279/3417)
+         IV size: 16 bytes
+         replay detection support: Y
+         Anti replay bitmap: 
+          0x00000000 0x000000FF
+    outbound esp sas:
+      spi: 0x0510F290 (84996752)
+         SA State: active
+         transform: esp-aes-256 esp-sha-256-hmac no compression 
+         in use settings ={L2L, Tunnel, PFS Group 20, IKEv2, }
+         slot: 0, conn_id: 2, crypto-map: OUTSIDE-MAP
+         sa timing: remaining key lifetime (kB/sec): (4147199/3417)
+         IV size: 16 bytes
+         replay detection support: Y
+         Anti replay bitmap: 
+          0x00000000 0x00000001
+asa-local# show version | include Version|Up|Model
+Cisco Adaptive Security Appliance Software Version 9.23(1) 
+SSP Operating System Version 2.17(0.518)
+Device Manager Version 7.23(1)
+
+## asa-partner
+asa-partner# show crypto ipsec sa
+interface: outside
+    Crypto map tag: OUTSIDE-MAP, seq num: 10, local addr: 203.0.113.2
+      access-list CUSTOMER-VPN extended permit ip host 198.51.100.10 192.0.2.16 255.255.255.240 
+      Protected vrf (ivrf): 
+      local ident (addr/mask/prot/port): (198.51.100.10/255.255.255.255/0/0)
+      remote ident (addr/mask/prot/port): (192.0.2.16/255.255.255.240/0/0)
+      current_peer: 203.0.113.1
+      #pkts encaps: 7, #pkts encrypt: 7, #pkts digest: 7
+      #pkts decaps: 8, #pkts decrypt: 8, #pkts verify: 8
+      #pkts compressed: 0, #pkts decompressed: 0
+      #pkts not compressed: 7, #pkts comp failed: 0, #pkts decomp failed: 0
+      #pre-frag successes: 0, #pre-frag failures: 0, #fragments created: 0
+      #PMTUs sent: 0, #PMTUs rcvd: 0, #decapsulated frgs needing reassembly: 0
+      #TFC rcvd: 0, #TFC sent: 0
+      #Valid ICMP Errors rcvd: 0, #Invalid ICMP Errors rcvd: 0
+      #pkts not offload decrypted: 8
+      #send errors: 0, #recv errors: 0
+      local crypto endpt.: 203.0.113.2/500, remote crypto endpt.: 203.0.113.1/500
+      path mtu 1500, ipsec overhead 78(44), media mtu 1500
+      PMTU time remaining (sec): 0, DF policy: copy-df
+      ICMP error validation: disabled, TFC packets: disabled
+      current outbound spi: E411A0BC
+      current inbound spi : 0510F290
+    inbound esp sas:
+      spi: 0x0510F290 (84996752)
+         SA State: active
+         transform: esp-aes-256 esp-sha-256-hmac no compression 
+         in use settings ={L2L, Tunnel, PFS Group 20, IKEv2, }
+         slot: 0, conn_id: 2, crypto-map: OUTSIDE-MAP
+         sa timing: remaining key lifetime (kB/sec): (4008959/3390)
+         IV size: 16 bytes
+         replay detection support: Y
+         Anti replay bitmap: 
+          0x00000000 0x000001FF
+    outbound esp sas:
+      spi: 0xE411A0BC (3826360508)
+         SA State: active
+         transform: esp-aes-256 esp-sha-256-hmac no compression 
+         in use settings ={L2L, Tunnel, PFS Group 20, IKEv2, }
+         slot: 0, conn_id: 2, crypto-map: OUTSIDE-MAP
+         sa timing: remaining key lifetime (kB/sec): (4055039/3390)
+         IV size: 16 bytes
+         replay detection support: Y
+         Anti replay bitmap: 
+          0x00000000 0x00000001
+asa-partner# show conn all
+1 in use, 6 most used
+UDP outside  203.0.113.1:500 NP Identity Ifc  203.0.113.2:500, idle 0:00:01, bytes 4617, flags -
+asa-partner# show running-config all sysopt
+no sysopt traffic detailed-statistics
+no sysopt connection timewait
+sysopt connection tcpmss 1380
+sysopt connection tcpmss minimum 0
+sysopt connection permit-vpn
+sysopt connection reclassify-vpn
+no sysopt connection preserve-vpn-flows
+no sysopt radius ignore-secret
+no sysopt noproxyarp outside
+no sysopt noproxyarp inside
+asa-partner# show access-list
+access-list cached ACL log flows: total 0, denied 0 (deny-flow-max 4096)
+            alert-interval 300
+access-list CUSTOMER-VPN; 1 elements; name hash: 0x9444cd0a
+access-list CUSTOMER-VPN line 1 extended permit ip object PARTNER-SVC object CUSTOMER-POOL (hitcnt=0) 0x7fd6aa35 
+  access-list CUSTOMER-VPN line 1 extended permit ip host 198.51.100.10 192.0.2.16 255.255.255.240 (hitcnt=0) 0x7fd6aa35
+asa-partner# show version | include license|Throughput|3DES|Licensed|Limit
+ASAv Platform License State: Unlicensed
+Licensed features for this platform:
+Encryption-3DES-AES               : Enabled
